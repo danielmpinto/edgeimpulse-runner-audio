@@ -46,8 +46,8 @@ add_definitions(-DEIDSP_QUANTIZE_FILTERBANK=0
 
 add_executable(pico_emb src/main.cpp)
 
-pico_enable_stdio_usb(pico_emb 1)
-pico_enable_stdio_uart(pico_emb 0)
+pico_enable_stdio_usb(pico_emb 0)
+pico_enable_stdio_uart(pico_emb 1)
 
 include(${EI_SDK_FOLDER}/cmake/utils.cmake)
 pico_generate_pio_header(pico_emb ${CMAKE_CURRENT_LIST_DIR}/${DRIVERS}/PDM/src/pdm.pio)

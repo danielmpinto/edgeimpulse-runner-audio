@@ -74,6 +74,8 @@
 #include "edge-impulse-sdk/classifier/ei_model_types.h"
 #include "edge-impulse-sdk/dsp/numpy.hpp"
 
+using namespace ei;
+
 // Forward-declaration sem incluir ei_run_classifier.h
 // (a definição já está compilada em ei_run_fusion_impulse.cpp)
 extern "C" EI_IMPULSE_ERROR run_classifier(
@@ -245,9 +247,7 @@ void vLaunch(void)
 
 static void gesture_recognize_task(void *p)
 {
-    gpio_init(15);
-    gpio_set_dir(15, GPIO_OUT);
-    gpio_put(15,0);
+    
 
     gpio_init(16);
     gpio_set_dir(16, GPIO_OUT);
@@ -256,6 +256,10 @@ static void gesture_recognize_task(void *p)
     gpio_init(17);
     gpio_set_dir(17, GPIO_OUT);
     gpio_put(17,0);
+
+    gpio_init(18);
+    gpio_set_dir(18, GPIO_OUT);
+    gpio_put(18,0);
     // uint slice_num = pwm_gpio_to_slice_num(PICO_DEFAULT_LED_PIN);
     // Initialize I2C port 0 and configuring Pins 0 and 1 for MPU6050
     i2c_init(i2c_default, 400 * 1000);
@@ -295,17 +299,17 @@ static void gesture_recognize_task(void *p)
 
     // signal_t signal;
     ei::signal_t signal;
-    // int err = numpy::signal_from_buffer(buffer, EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE, &signal);
-    // if (err != 0) {
-    //     ei_printf("Failed to create signal from buffer (%d)\n", err);
-    //     break;
-    // }
+    int err = numpy::signal_from_buffer(buffer, EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE, &signal);
+    if (err != 0) {
+        ei_printf("Failed to create signal from buffer (%d)\n", err);
+        break;
+    }
 
     // Run the classifier
     ei_impulse_result_t result = { 0 };
 
     // err = run_classifier(&signal, &result, debug_nn);
-    int err = run_classifier(&signal, &result, debug_nn);
+    err = run_classifier(&signal, &result, debug_nn);
     if (err != EI_IMPULSE_OK) {
         ei_printf("ERR: Failed to run classifier (%d)\n", err);
         break;
@@ -318,17 +322,17 @@ static void gesture_recognize_task(void *p)
     ei_printf(": \n");
     
     if (result.classification[0].value > result.classification[1].value && result.classification[0].value > result.classification[2].value) {
-        gpio_put(15, 1);
-        gpio_put(16, 0);
-        gpio_put(17, 0);
-    } else if (result.classification[1].value > result.classification[0].value && result.classification[1].value > result.classification[2].value) {
-        gpio_put(15, 0);
         gpio_put(16, 1);
         gpio_put(17, 0);
-    } else if (result.classification[2].value > result.classification[0].value && result.classification[2].value > result.classification[1].value) {
-        gpio_put(15, 0);
+        gpio_put(18, 0);
+    } else if (result.classification[1].value > result.classification[0].value && result.classification[1].value > result.classification[2].value) {
         gpio_put(16, 0);
         gpio_put(17, 1);
+        gpio_put(18, 0);
+    } else if (result.classification[2].value > result.classification[0].value && result.classification[2].value > result.classification[1].value) {
+        gpio_put(17, 0);
+        gpio_put(16, 0);
+        gpio_put(18, 1);
     }
     for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
         ei_printf("teste    %s: %.5f\n", result.classification[ix].label, result.classification[ix].value);
