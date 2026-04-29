@@ -1,3 +1,19 @@
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.2.0)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.2.0-a4)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
+set(PICO_BOARD pico2 CACHE STRING "Board type")
+
 cmake_minimum_required(VERSION 3.15)
 
 include(pico_sdk_import.cmake)
@@ -16,7 +32,7 @@ else()
     set(RP_PROJCT_NAME ei_rp2350_firmware)
 endif()
 
-project(${RP_PROJCT_NAME} C CXX ASM)
+project(pico_emb C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
@@ -28,16 +44,16 @@ add_definitions(-DEIDSP_QUANTIZE_FILTERBANK=0
                -DARM_MATH_LOOPUNROLL
                                 )
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(pico_emb src/main.cpp)
 
-pico_enable_stdio_usb(${RP_PROJCT_NAME} 1)
-pico_enable_stdio_uart(${RP_PROJCT_NAME} 0)
+pico_enable_stdio_usb(pico_emb 1)
+pico_enable_stdio_uart(pico_emb 0)
 
 include(${EI_SDK_FOLDER}/cmake/utils.cmake)
-pico_generate_pio_header(${RP_PROJCT_NAME} ${CMAKE_CURRENT_LIST_DIR}/${DRIVERS}/PDM/src/pdm.pio)
+pico_generate_pio_header(pico_emb ${CMAKE_CURRENT_LIST_DIR}/${DRIVERS}/PDM/src/pdm.pio)
 
 
-target_link_libraries(${RP_PROJCT_NAME}
+target_link_libraries(pico_emb
                       pico_async_context_freertos
                       FreeRTOS-Kernel-Heap4
                       pico_stdlib
@@ -51,16 +67,16 @@ target_link_libraries(${RP_PROJCT_NAME}
                       hardware_dma)
 
 if(PICO_CYW43_SUPPORTED)
-    target_link_libraries(${RP_PROJCT_NAME} pico_cyw43_arch_none)
+    target_link_libraries(pico_emb pico_cyw43_arch_none)
 endif()
 
 
-target_compile_definitions(${RP_PROJCT_NAME} PRIVATE
+target_compile_definitions(pico_emb PRIVATE
     configNUMBER_OF_CORES=2
     )
 
 
-target_include_directories(${RP_PROJCT_NAME} PRIVATE
+target_include_directories(pico_emb PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/FreeRTOS-Kernel/include
     ${MODEL_FOLDER}
@@ -132,5 +148,5 @@ list(APPEND SOURCE_FILES ${FIRMWARE_SDK_FILES})
 list(APPEND SOURCE_FILES ${DRIVER_FILES})
 list(APPEND SOURCE_FILES ${MIC_FILES})
 
-target_sources(${RP_PROJCT_NAME} PRIVATE ${SOURCE_FILES})
-pico_add_extra_outputs(${RP_PROJCT_NAME})
+target_sources(pico_emb PRIVATE ${SOURCE_FILES})
+pico_add_extra_outputs(pico_emb)

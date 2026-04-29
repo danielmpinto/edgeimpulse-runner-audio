@@ -49,6 +49,86 @@
 #include <stdio.h>
 #include <time.h>
 
+
+
+// edited
+
+#include <hardware/gpio.h>
+#include <hardware/uart.h>
+#include <pico/stdio.h>
+#include <hardware/i2c.h>
+
+
+// // freertos
+#include <FreeRTOS.h>
+#include <task.h>
+#include <semphr.h>
+#include <queue.h>
+#include <stdlib.h>
+
+// // específico
+#include "mpu6050.h"
+// edited
+// -- Adicione estas 3 linhas em main.cpp --
+#include "model-parameters/model_metadata.h"
+#include "edge-impulse-sdk/classifier/ei_model_types.h"
+#include "edge-impulse-sdk/dsp/numpy.hpp"
+
+// Forward-declaration sem incluir ei_run_classifier.h
+// (a definição já está compilada em ei_run_fusion_impulse.cpp)
+extern "C" EI_IMPULSE_ERROR run_classifier(
+    ei::signal_t *signal,
+    ei_impulse_result_t *result,
+    bool debug);
+// definindo necessário pra MPU - I2C
+static bool debug_nn = false;
+const int MPU_ADDRESS = 0x68;
+const int I2C_SDA_GPIO = 4;
+const int I2C_SCL_GPIO = 5;
+
+static void mpu6050_reset() {
+    // Two byte reset. First byte register, second byte data
+    // There are a load more options to set up the device in different ways that could be added here
+    uint8_t buf[] = {0x6B, 0x00};
+    i2c_write_blocking(i2c_default, MPU_ADDRESS, buf, 2, false);
+}
+
+static void mpu6050_read_raw(int16_t accel[3], int16_t gyro[3], int16_t *temp) {
+    // For this particular device, we send the device the register we want to read
+    // first, then subsequently read from the device. The register is auto incrementing
+    // so we don't need to keep sending the register we want, just the first.
+
+    uint8_t buffer[6];
+
+    // Start reading acceleration registers from register 0x3B for 6 bytes
+    uint8_t val = 0x3B;
+    i2c_write_blocking(i2c_default, MPU_ADDRESS, &val, 1, true); // true to keep master control of bus
+    i2c_read_blocking(i2c_default, MPU_ADDRESS, buffer, 6, false);
+
+    for (int i = 0; i < 3; i++) {
+        accel[i] = (buffer[i * 2] << 8 | buffer[(i * 2) + 1]);
+    }
+
+    // Now gyro data from reg 0x43 for 6 bytes
+    // The register is auto incrementing on each read
+    val = 0x43;
+    i2c_write_blocking(i2c_default, MPU_ADDRESS, &val, 1, true);
+    i2c_read_blocking(i2c_default, MPU_ADDRESS, buffer, 6, false);  // False - finished with bus
+
+    for (int i = 0; i < 3; i++) {
+        gyro[i] = (buffer[i * 2] << 8 | buffer[(i * 2) + 1]);;
+    }
+
+    // Now temperature from reg 0x41 for 2 bytes
+    // The register is auto incrementing on each read
+    val = 0x41;
+    i2c_write_blocking(i2c_default, MPU_ADDRESS, &val, 1, true);
+    i2c_read_blocking(i2c_default, MPU_ADDRESS, buffer, 2, false);  // False - finished with bus
+
+    *temp = buffer[0] << 8 | buffer[1];
+}
+
+
 #if defined(RASPBERRYPI_PICO2_W) || defined(RASPBERRYPI_PICO_W)
 #include "pico/cyw43_arch.h"
 #pragma message("Including WiFi support for Raspberry Pi Pico 2 W")
@@ -163,23 +243,119 @@ void vLaunch(void)
     vTaskStartScheduler();
 }
 
+static void gesture_recognize_task(void *p)
+{
+    gpio_init(15);
+    gpio_set_dir(15, GPIO_OUT);
+    gpio_put(15,0);
+
+    gpio_init(16);
+    gpio_set_dir(16, GPIO_OUT);
+    gpio_put(16,0);
+
+    gpio_init(17);
+    gpio_set_dir(17, GPIO_OUT);
+    gpio_put(17,0);
+    // uint slice_num = pwm_gpio_to_slice_num(PICO_DEFAULT_LED_PIN);
+    // Initialize I2C port 0 and configuring Pins 0 and 1 for MPU6050
+    i2c_init(i2c_default, 400 * 1000);
+    gpio_set_function(I2C_SDA_GPIO, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL_GPIO, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA_GPIO);
+    gpio_pull_up(I2C_SCL_GPIO);
+    mpu6050_reset();
+
+
+
+    int16_t accelerometer[3],gyro[3],temp;
+
+
+
+    while (true) 
+    
+    {
+        ei_printf("\nStarting inferencing in 2 seconds...\n");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        ei_printf("Sampling...\n");
+
+    // Allocate a buffer here for the values we'll read from the IMU
+    float buffer[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE] = { 0 };
+
+    for (size_t ix = 0; ix < EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE; ix += 3) {
+        // Determine the next tick (and then sleep later)
+        //uint64_t next_tick = micros() + (EI_CLASSIFIER_INTERVAL_MS * 1000);
+        mpu6050_read_raw(accelerometer,gyro,&temp);
+        buffer[ix + 0]= accelerometer[0];
+        buffer[ix + 1]= accelerometer[1];
+        buffer[ix + 2]= accelerometer[2];
+
+        
+        //IMU.readAcceleration(buffer[ix], buffer[ix + 1], buffer[ix + 2]);
+    }
+
+    // signal_t signal;
+    ei::signal_t signal;
+    // int err = numpy::signal_from_buffer(buffer, EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE, &signal);
+    // if (err != 0) {
+    //     ei_printf("Failed to create signal from buffer (%d)\n", err);
+    //     break;
+    // }
+
+    // Run the classifier
+    ei_impulse_result_t result = { 0 };
+
+    // err = run_classifier(&signal, &result, debug_nn);
+    int err = run_classifier(&signal, &result, debug_nn);
+    if (err != EI_IMPULSE_OK) {
+        ei_printf("ERR: Failed to run classifier (%d)\n", err);
+        break;
+    }
+
+    // print the predictions
+    ei_printf("Predictions ");
+    ei_printf("(DSP: %d ms., Classification: %d ms., Anomaly: %d ms.)",
+        result.timing.dsp, result.timing.classification, result.timing.anomaly);
+    ei_printf(": \n");
+    
+    if (result.classification[0].value > result.classification[1].value && result.classification[0].value > result.classification[2].value) {
+        gpio_put(15, 1);
+        gpio_put(16, 0);
+        gpio_put(17, 0);
+    } else if (result.classification[1].value > result.classification[0].value && result.classification[1].value > result.classification[2].value) {
+        gpio_put(15, 0);
+        gpio_put(16, 1);
+        gpio_put(17, 0);
+    } else if (result.classification[2].value > result.classification[0].value && result.classification[2].value > result.classification[1].value) {
+        gpio_put(15, 0);
+        gpio_put(16, 0);
+        gpio_put(17, 1);
+    }
+    for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
+        ei_printf("teste    %s: %.5f\n", result.classification[ix].label, result.classification[ix].value);
+    }
+    
+    
+#if EI_CLASSIFIER_HAS_ANOMALY == 1
+    ei_printf("    anomaly score: %.3f\n", result.anomaly);
+#endif
+
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+
 int main(void)
 {
 
+    //stdio_usb_init();
     stdio_init_all();
 
-#ifdef RASPBERRYPI_PICO2_W
-    if (cyw43_arch_init()) {
-        ei_printf("Wi-Fi init failed\n");
-        return -1;
-    }
-#endif
+    
 
-    xTaskCreate(ei_main, "ei_main", 1024, NULL, (tskIDLE_PRIORITY + 1), NULL);
+    xTaskCreate(gesture_recognize_task, "gesture_task 1", 8192, NULL, 1, NULL);
 
     vTaskStartScheduler();
 
-    while (1) { }
-
-    return 0;
+    while (true)
+        ;
 }
