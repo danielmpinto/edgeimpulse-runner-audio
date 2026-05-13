@@ -17,40 +17,38 @@
 
 // imu
 #include <hardware/gpio.h>
+#include <hardware/i2c.h>
 #include <hardware/uart.h>
 #include <pico/stdio.h>
-#include <hardware/i2c.h>
 
 // freertos
 #include <FreeRTOS.h>
-#include <task.h>
-#include <semphr.h>
 #include <queue.h>
+#include <semphr.h>
 #include <stdlib.h>
+#include <task.h>
 
 // // específico
 #include "mpu6050.h"
 // edited
 // -- Adicione estas 3 linhas em main.cpp --
-#include "model-parameters/model_metadata.h"
 #include "edge-impulse-sdk/classifier/ei_model_types.h"
 #include "edge-impulse-sdk/dsp/numpy.hpp"
+#include "model-parameters/model_metadata.h"
 
 using namespace ei;
-extern "C" EI_IMPULSE_ERROR run_classifier(
-    ei::signal_t *signal,
-    ei_impulse_result_t *result,
-    bool debug);
-static bool debug_nn = false;
 
-EiDeviceInfo *EiDevInfo = dynamic_cast<EiDeviceInfo *>(EiDeviceRP2xxx::get_device());
-static ATServer *at;
+extern "C" EI_IMPULSE_ERROR
+run_classifier(ei::signal_t *signal, ei_impulse_result_t *result, bool debug);
+
+static bool debug_nn = false;
 
 const int MPU_ADDRESS = 0x68;
 const int I2C_SDA_GPIO = 4;
 const int I2C_SCL_GPIO = 5;
 
-static void mpu6050_init() {
+static void mpu6050_init()
+{
     i2c_init(i2c_default, 400 * 1000);
     gpio_set_function(I2C_SDA_GPIO, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL_GPIO, GPIO_FUNC_I2C);
@@ -59,11 +57,12 @@ static void mpu6050_init() {
 
     // Two byte reset. First byte register, second byte data
     // There are a load more options to set up the device in different ways that could be added here
-    uint8_t buf[] = {0x6B, 0x00};
+    uint8_t buf[] = { 0x6B, 0x00 };
     i2c_write_blocking(i2c_default, MPU_ADDRESS, buf, 2, false);
 }
 
-static void mpu6050_read_raw(int16_t accel[3], int16_t gyro[3], int16_t *temp) {
+static void mpu6050_read_raw(int16_t accel[3], int16_t gyro[3], int16_t *temp)
+{
     uint8_t buffer[14];
 
     // Read all data sequentially starting from acceleration registers (0x3B)
@@ -88,23 +87,24 @@ static void mpu6050_read_raw(int16_t accel[3], int16_t gyro[3], int16_t *temp) {
     }
 }
 
-static void gesture_recognize_task(void *p) {
-    mpu6050_init()
+static void gesture_recognize_task(void *p)
+{
+    mpu6050_init();
     int16_t accelerometer[3], gyro[3], temp;
 
-    while (true)  {
-//        ei_printf("\nStarting inferencing in 2 seconds...\n");
-//        vTaskDelay(pdMS_TO_TICKS(2000));
-//        ei_printf("Sampling...\n");
+    while (true) {
+        //        ei_printf("\nStarting inferencing in 2 seconds...\n");
+        //        vTaskDelay(pdMS_TO_TICKS(2000));
+        //        ei_printf("Sampling...\n");
 
         float buffer[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE] = { 0 };
-    
+
         for (size_t ix = 0; ix < EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE; ix += 3) {
-            mpu6050_read_raw(accelerometer,gyro,&temp);
-            buffer[ix + 0]= accelerometer[0];
-            buffer[ix + 1]= accelerometer[1];
-            buffer[ix + 2]= accelerometer[2];
-            
+            mpu6050_read_raw(accelerometer, gyro, &temp);
+            buffer[ix + 0] = accelerometer[0];
+            buffer[ix + 1] = accelerometer[1];
+            buffer[ix + 2] = accelerometer[2];
+
             vTaskDelay(pdMS_TO_TICKS(10));
         }
 
@@ -115,7 +115,7 @@ static void gesture_recognize_task(void *p) {
             ei_printf("Failed to create signal from buffer (%d)\n", err);
             break;
         }
-    
+
         // Run the classifier
         ei_impulse_result_t result = { 0 };
         err = run_classifier(&signal, &result, debug_nn);
@@ -123,25 +123,32 @@ static void gesture_recognize_task(void *p) {
             ei_printf("ERR: Failed to run classifier (%d)\n", err);
             break;
         }
-    
+
         // print the predictions
         ei_printf("Predictions ");
-        ei_printf("(DSP: %d ms., Classification: %d ms., Anomaly: %d ms.)",
-            result.timing.dsp, result.timing.classification, result.timing.anomaly);
+        ei_printf(
+            "(DSP: %d ms., Classification: %d ms., Anomaly: %d ms.)",
+            result.timing.dsp,
+            result.timing.classification,
+            result.timing.anomaly);
         ei_printf(": \n");
         for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
-            ei_printf("teste    %s: %.5f\n", result.classification[ix].label, result.classification[ix].value);
+            ei_printf(
+                "teste    %s: %.5f\n",
+                result.classification[ix].label,
+                result.classification[ix].value);
         }
-        
+
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
-#endif            
-        }
+#endif
+    }
 }
 
-int main(void) {
+int main(void)
+{
     stdio_init_all();
-    
+
     xTaskCreate(gesture_recognize_task, "gesture_task 1", 8192, NULL, 1, NULL);
     vTaskStartScheduler();
 
