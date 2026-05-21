@@ -43,54 +43,27 @@ run_classifier(ei::signal_t *signal, ei_impulse_result_t *result, bool debug);
 
 static bool debug_nn = false;
 
-const int MPU_ADDRESS = 0x68;
-const int I2C_SDA_GPIO = 4;
-const int I2C_SCL_GPIO = 5;
 
-static void mpu6050_init()
-{
-    i2c_init(i2c_default, 400 * 1000);
-    gpio_set_function(I2C_SDA_GPIO, GPIO_FUNC_I2C);
-    gpio_set_function(I2C_SCL_GPIO, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_SDA_GPIO);
-    gpio_pull_up(I2C_SCL_GPIO);
+#include "hardware/adc.h"
 
-    // Two byte reset. First byte register, second byte data
-    // There are a load more options to set up the device in different ways that could be added here
-    uint8_t buf[] = { 0x6B, 0x00 };
-    i2c_write_blocking(i2c_default, MPU_ADDRESS, buf, 2, false);
+
+#define ADC_NUM 0
+#define ADC_PIN (26 + ADC_NUM)
+#define ADC_VREF 3.3
+#define ADC_RANGE (1 << 12)
+#define ADC_CONVERT (ADC_VREF / (ADC_RANGE - 1))
+
+
+volatile int g_timer_0 = 0;
+
+bool timer_0_callback(repeating_timer_t *rt) {
+    g_timer_0 = 1;
+    return true; // keep repeating
 }
 
-static void mpu6050_read_raw(int16_t accel[3], int16_t gyro[3], int16_t *temp)
+static void wakework_recognition(void *p)
 {
-    uint8_t buffer[14];
-
-    // Read all data sequentially starting from acceleration registers (0x3B)
-    // 0x3B-0x40: acceleration (6 bytes)
-    // 0x41-0x42: temperature (2 bytes)
-    // 0x43-0x48: gyro (6 bytes)
-    uint8_t val = 0x3B;
-    i2c_write_blocking(i2c_default, MPU_ADDRESS, &val, 1, true);
-    i2c_read_blocking(i2c_default, MPU_ADDRESS, buffer, 14, false);
-
-    // Parse acceleration
-    for (int i = 0; i < 3; i++) {
-        accel[i] = (buffer[i * 2] << 8 | buffer[(i * 2) + 1]);
-    }
-
-    // Parse temperature
-    *temp = buffer[6] << 8 | buffer[7];
-
-    // Parse gyro
-    for (int i = 0; i < 3; i++) {
-        gyro[i] = (buffer[8 + i * 2] << 8 | buffer[8 + (i * 2) + 1]);
-    }
-}
-
-static void gesture_recognize_task(void *p)
-{
-    mpu6050_init();
-    int16_t accelerometer[3], gyro[3], temp;
+    uint adc_raw = 0;
 
     while (true) {
         //        ei_printf("\nStarting inferencing in 2 seconds...\n");
@@ -99,15 +72,19 @@ static void gesture_recognize_task(void *p)
 
         float buffer[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE] = { 0 };
 
-        for (size_t ix = 0; ix < EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE; ix += 3) {
-            mpu6050_read_raw(accelerometer, gyro, &temp);
-            buffer[ix + 0] = accelerometer[0];
-            buffer[ix + 1] = accelerometer[1];
-            buffer[ix + 2] = accelerometer[2];
+        if(g_timer_0){
+            for (size_t ix = 0; ix < EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE; ix += 3) {
+            adc_raw = adc_read(); // raw voltage from ADC
+            // printf("%.2f\n", adc_raw * ADC_CONVERT);
+            buffer[ix + 0] = adc_raw * ADC_CONVERT;
 
-            vTaskDelay(pdMS_TO_TICKS(10));
+
+            g_timer_0 = 0;
+             }
         }
 
+     
+        
         // Prepara sinal
         ei::signal_t signal;
         int err = numpy::signal_from_buffer(buffer, EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE, &signal);
@@ -133,10 +110,13 @@ static void gesture_recognize_task(void *p)
             result.timing.anomaly);
         ei_printf(": \n");
         for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
-            ei_printf(
-                "teste    %s: %.5f\n",
-                result.classification[ix].label,
-                result.classification[ix].value);
+            // ei_printf(
+            //     "teste    %s: %.5f\n",
+            //     result.classification[ix].label,
+            //     result.classification[ix].value);
+            if(result.classification[ix].value > 0.2 && result.classification[ix].label == "alexo"){
+                ei_printf("Acende LED para %s\n", result.classification[ix].label);
+            }
         }
 
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
@@ -149,7 +129,19 @@ int main(void)
 {
     stdio_init_all();
 
-    xTaskCreate(gesture_recognize_task, "gesture_task 1", 8192, NULL, 1, NULL);
+    adc_init();
+    adc_gpio_init( ADC_PIN);
+    adc_select_input( ADC_NUM);
+
+    repeating_timer_t timer_0;
+
+    if (!add_repeating_timer_us(62.5, 
+                                timer_0_callback,
+                                NULL, 
+                                &timer_0)) {
+        printf("Failed to add timer\n");
+    }
+    xTaskCreate(wakework_recognition, "gesture_task 1", 8192, NULL, 1, NULL);
     vTaskStartScheduler();
 
     while (true)
