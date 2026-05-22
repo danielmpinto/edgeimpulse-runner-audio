@@ -76,7 +76,7 @@ static void wakework_recognition(void *p)
             for (size_t ix = 0; ix < EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE; ix += 3) {
             adc_raw = adc_read(); // raw voltage from ADC
             // printf("%.2f\n", adc_raw * ADC_CONVERT);
-            buffer[ix + 0] = adc_raw * ADC_CONVERT;
+            buffer[ix + 0] = adc_raw;
 
 
             g_timer_0 = 0;
@@ -110,14 +110,21 @@ static void wakework_recognition(void *p)
             result.timing.anomaly);
         ei_printf(": \n");
         for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
-            // ei_printf(
-            //     "teste    %s: %.5f\n",
-            //     result.classification[ix].label,
-            //     result.classification[ix].value);
-            if(result.classification[ix].value > 0.2 && result.classification[ix].label == "alexo"){
-                ei_printf("Acende LED para %s\n", result.classification[ix].label);
+            ei_printf(
+                "teste    %s: %.5f\n",
+                result.classification[ix].label,
+                result.classification[ix].value);
+            // if(result.classification[ix].value > 0.8 && result.classification[ix].label == "alexo"){
+            //     ei_printf("Acende LED para %s\n", result.classification[ix].label);
+            // }
+            if(result.classification[ix].value > 0.8 && result.classification[ix].label == "alexa"){
+                gpio_put(16, 1); // Acende o LED
+                printf("Acende LED para %s\n", result.classification[ix].label);
+            } else {
+                gpio_put(16, 0); // Apaga o LED
             }
         }
+        // vTaskDelay(pdMS_TO_TICKS(500));
 
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
@@ -132,6 +139,8 @@ int main(void)
     adc_init();
     adc_gpio_init( ADC_PIN);
     adc_select_input( ADC_NUM);
+    gpio_init(16); // Inicializa o GPIO para o LED
+    gpio_set_dir(16, GPIO_OUT); // Configura o GPIO como saída      
 
     repeating_timer_t timer_0;
 
